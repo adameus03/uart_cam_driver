@@ -318,6 +318,10 @@ void* ucd_loop(void* pArg) {
         // Read request
         char request;
         int request_fd = open(UCD_FILE_REQUEST, O_RDWR);
+        if (request_fd < 0) {
+            LOG_E("Error %d opening %s: %s", errno, UCD_FILE_REQUEST, strerror(errno));
+            return NULL;
+        }
         ssize_t rv = read(request_fd, &request, 1); 
         if (rv == 0) {
             usleep(10000); // Sleep 10ms
