@@ -317,15 +317,15 @@ void* ucd_loop(void* pArg) {
     while (1) {
         // Read request
         char request;
-        int request_fd = open(UCD_FILE_REQUEST, O_RDWR);
+        int request_fd = open(UCD_FILE_REQUEST, O_RDONLY);
         if (request_fd < 0) {
             LOG_E("Error %d opening %s: %s", errno, UCD_FILE_REQUEST, strerror(errno));
             return NULL;
         }
         ssize_t rv = read(request_fd, &request, 1); 
-        if (rv == 0) {
+        while (rv == 0) {
             usleep(10000); // Sleep 10ms
-            continue;
+            rv = read(request_fd, &request, 1);
         }
         if (rv != 1) {
             LOG_E("Error reading request: %s (errno = %d, rv = %d)", strerror(errno), errno, rv);
@@ -340,10 +340,13 @@ void* ucd_loop(void* pArg) {
                 ucd_firmware_update(fd);
                 break;
         }
+        close(request_fd);
+        request_fd = open(UCD_FILE_REQUEST, O_WRONLY);
         if (0 != ftruncate(request_fd, 0)) {
             LOG_E("Error truncating %s: %s", UCD_FILE_REQUEST, strerror(errno));
             return NULL;
         }
+        close(request_fd);
         ucd_set_state(UCD_STATE_R);
     }
 }
