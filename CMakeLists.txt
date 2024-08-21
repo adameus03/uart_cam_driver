@@ -18,7 +18,9 @@ if(IS_BIG_ENDIAN)
 else()
     add_definitions(-DTARGET_LITTLE_ENDIAN) # For little endian
 endif()
+find_package(Threads REQUIRED)
 add_executable(${CMAKE_PROJECT_NAME} 
     ${CMAKE_CURRENT_SOURCE_DIR}/main.c
     ${CMAKE_CURRENT_SOURCE_DIR}/driver.c
 )
+target_link_libraries(${PROJECT_NAME} PRIVATE Threads::Threads)
