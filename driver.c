@@ -36,6 +36,8 @@
 #define UCD_FILE_FIRMWARE UCD_PATH "/" UCD_RELATIVE_FILE_FIRMWARE
 
 #define UCD_BUF_SIZE 30720
+//#define UCD_SEND_BUF_SIZE 30720
+//#define UCD_RCV_BUF_SIZE 1024
 #define UCD_READY_MARKER "wxyz"
 #define UCD_READY_MARKER_LEN 4
 
@@ -129,6 +131,7 @@ static int ucd_delete_files() {
  * @param fd File descriptor for the serial port
  */
 static void ucd_frame(int fd) {
+    //tcflush(fd, TCIFLUSH);
     LOG_D("Getting frame");
     // Send 'f' to the serial port
     char request = UCD_REQUEST_GET_FRAME;
@@ -139,7 +142,8 @@ static void ucd_frame(int fd) {
     }
 
     // Receive 4 bytes for the frame size
-    char frame_size_bytes[4];
+    //char frame_size_bytes[4];
+    uint32_t frame_size = 0U;
     LOG_D("Receiving frame size");
 
 
@@ -173,20 +177,20 @@ static void ucd_frame(int fd) {
     // return;
     
 
-    if (read(fd, frame_size_bytes, 4) != 4) {
-        LOG_E("Error reading frame size: %s", strerror(errno));
-        return;
-    }
-    // if (ucd_serial_read(fd, frame_size_bytes, 4) != 0) {
-    //     LOG_E("ucd_serial_read failed");
+    // if (read(fd, frame_size_bytes, 4) != 4) {
+    //     LOG_E("Error reading frame size: %s", strerror(errno));
     //     return;
     // }
-    // Convert the 4 bytes to an integer
-    uint32_t frame_size = 0;
-    for (uint8_t i = 0U; i < 4U; i++) {
-        frame_size |= frame_size_bytes[i] << (i << 3);
+    if (ucd_serial_read(fd, (void*)&frame_size, 4LU) != 0) {
+        LOG_E("ucd_serial_read failed");
+        return;
     }
-    LOG_D("Frame size is %d B", frame_size);
+    // Convert the 4 bytes to an integer
+    // uint32_t frame_size = 0;
+    // for (uint8_t i = 0U; i < 4U; i++) {
+    //     frame_size |= frame_size_bytes[i] << (i << 3);
+    // }
+    LOG_D("Frame size is %u B (0x%x B)", frame_size, frame_size);
     // Receive the frame in chunks of UCD_BUF_SIZE bytes (should be 1024) and write them to UCD_FILE_FRAME
     char frame_chunk[UCD_BUF_SIZE];
     int frame_fd = open(UCD_FILE_FRAME, O_WRONLY);
@@ -201,8 +205,10 @@ static void ucd_frame(int fd) {
     for (uint32_t i = 0U; i < frame_size; i += UCD_BUF_SIZE) {
         LOG_D("Reading frame chunk at %d B", i);
         uint32_t bytes_to_read = (frame_size - i) < UCD_BUF_SIZE ? (frame_size - i) : UCD_BUF_SIZE;
-        if (read(fd, frame_chunk, bytes_to_read) != bytes_to_read) {
-            LOG_E("Error reading frame chunk: %s", strerror(errno));
+        //if (read(fd, frame_chunk, bytes_to_read) != bytes_to_read) {
+        if (ucd_serial_read(fd, frame_chunk, bytes_to_read) != 0) {
+            //LOG_E("Error reading frame chunk: %s", strerror(errno));
+            LOG_E("ucd_serial_read failed.");
             return;
         }
         // if (ucd_serial_read(fd, frame_chunk, bytes_to_read) != 0) {
@@ -273,7 +279,8 @@ void* ucd_loop(void* pArg) {
     char drain_buf[UCD_READY_MARKER_LEN];
     LOG_D("Draining the input buffer...");
     while (1) {
-        if (read(fd, drain_buf, UCD_READY_MARKER_LEN) == UCD_READY_MARKER_LEN) {
+        //if (read(fd, drain_buf, UCD_READY_MARKER_LEN) == UCD_READY_MARKER_LEN) {
+        if (ucd_serial_read(fd, drain_buf, UCD_READY_MARKER_LEN) == 0) {
             if (strncmp(drain_buf, UCD_READY_MARKER, UCD_READY_MARKER_LEN) == 0) {
                 // Read single byte to know how many further bytes to drain
                 char drain_byte;
@@ -300,7 +307,8 @@ void* ucd_loop(void* pArg) {
                 break;
             }
         } else {
-            LOG_E("Error reading from serial port: %s", strerror(errno));
+            //LOG_E("Error reading from serial port: %s", strerror(errno));
+            LOG_E("ucd_serial_read failed.");
             return NULL;
         }
     }
