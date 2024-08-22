@@ -3,7 +3,7 @@
  * @param pcDev Serial port device path
  * @return File descriptor of the serial port, or -1 if an error occurred
  */
-int ucd_driver_attach(const char* pcDev);
+int ucd_driver_attach(const char* pcDev, int devnum);
 
 /**
  * @brief Detach UCD driver from a serial port
