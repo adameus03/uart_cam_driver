@@ -5,10 +5,13 @@
 
 // Pass /dev/ttyUSBx as first positional argument
 // Pass devnum as second positional argument
+// As third positional argument, pass
+//  0 for no input draining
+//  1 for serial draining
 int main(int argc, char *argv[]) {
-    assert(argc == 3);
+    assert(argc == 4);
     
-    int fd = ucd_driver_attach(argv[1], atoi(argv[2]));
+    int fd = ucd_driver_attach(argv[1], atoi(argv[2]), atoi(argv[3]));
     if (fd < 0) {
         return -1;
     }

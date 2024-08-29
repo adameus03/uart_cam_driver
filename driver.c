@@ -85,9 +85,15 @@ static char* UCD_FILE_FIRMWARE(int devnum) {
     return ucd_file_path(&pcPath, devnum, UCD_RELATIVE_FILE_FIRMWARE);
 }
 
+typedef struct {
+    int fd;
+    int shouldDrain;
+} ucd_loop_args_t;
+
 static pthread_t __ucd_loop_thread;
 static int __ucd_fd = -1;
 static int __ucd_devnum = -1;
+static ucd_loop_args_t __ucd_loop_args;
 
 static int ucd_serial_read(int fd, void* buf, size_t len) {
     size_t bytes_read = 0;
@@ -319,43 +325,50 @@ static void ucd_firmware_update(int fd) {
 }
 
 void* ucd_loop(void* pArg) {
-    int fd = *((int*) pArg);
-    // Read from the serial port until SAU_READY_MARKER is present
-    char drain_buf[UCD_READY_MARKER_LEN];
-    LOG_D("Draining the input buffer...");
-    while (1) {
-        //if (read(fd, drain_buf, UCD_READY_MARKER_LEN) == UCD_READY_MARKER_LEN) {
-        if (ucd_serial_read(fd, drain_buf, UCD_READY_MARKER_LEN) == 0) {
-            if (strncmp(drain_buf, UCD_READY_MARKER, UCD_READY_MARKER_LEN) == 0) {
-                // Read single byte to know how many further bytes to drain
-                char drain_byte;
-                if (read(fd, &drain_byte, 1) != 1) {
-                    LOG_E("Error reading from serial port: %s", strerror(errno));
-                    return NULL;
-                }
-                ssize_t bytes_to_drain = ((ssize_t)(drain_byte - '0')) * (1 + UCD_READY_MARKER_LEN);
-                if (bytes_to_drain > 0) {
-                    char drain_buf[bytes_to_drain];
-                    ssize_t rv = read(fd, drain_buf, bytes_to_drain);
-                    if (rv != bytes_to_drain) {
-                        LOG_E("Error reading from serial port: %s (errno = %d, rv = %d, bytes_to_drain=%d)", strerror(errno), errno, rv, bytes_to_drain);
-                        if (rv >= 0) {
-                            // print received incomplete buffer
-                            char* incomplete_data = (char*)malloc(rv + 1);
-                            memcpy(incomplete_data, drain_buf, rv);
-                            incomplete_data[rv] = '\0';
-                            LOG_E("The incomplete data was: [%s]", incomplete_data); 
-                        }
+    //int fd = *((int*) pArg);
+    ucd_loop_args_t args = *((ucd_loop_args_t*) pArg);
+    int fd = args.fd;
+    int shouldDrain = args.shouldDrain;
+    if (shouldDrain) {
+        // Read from the serial port until SAU_READY_MARKER is present
+        char drain_buf[UCD_READY_MARKER_LEN];
+        LOG_D("Draining the input buffer...");
+        while (1) {
+            //if (read(fd, drain_buf, UCD_READY_MARKER_LEN) == UCD_READY_MARKER_LEN) {
+            if (ucd_serial_read(fd, drain_buf, UCD_READY_MARKER_LEN) == 0) {
+                if (strncmp(drain_buf, UCD_READY_MARKER, UCD_READY_MARKER_LEN) == 0) {
+                    // Read single byte to know how many further bytes to drain
+                    char drain_byte;
+                    if (read(fd, &drain_byte, 1) != 1) {
+                        LOG_E("Error reading from serial port: %s", strerror(errno));
                         return NULL;
                     }
+                    ssize_t bytes_to_drain = ((ssize_t)(drain_byte - '0')) * (1 + UCD_READY_MARKER_LEN);
+                    if (bytes_to_drain > 0) {
+                        char drain_buf[bytes_to_drain];
+                        ssize_t rv = read(fd, drain_buf, bytes_to_drain);
+                        if (rv != bytes_to_drain) {
+                            LOG_E("Error reading from serial port: %s (errno = %d, rv = %d, bytes_to_drain=%d)", strerror(errno), errno, rv, bytes_to_drain);
+                            if (rv >= 0) {
+                                // print received incomplete buffer
+                                char* incomplete_data = (char*)malloc(rv + 1);
+                                memcpy(incomplete_data, drain_buf, rv);
+                                incomplete_data[rv] = '\0';
+                                LOG_E("The incomplete data was: [%s]", incomplete_data); 
+                            }
+                            return NULL;
+                        }
+                    }
+                    break;
                 }
-                break;
+            } else {
+                //LOG_E("Error reading from serial port: %s", strerror(errno));
+                LOG_E("ucd_serial_read failed.");
+                return NULL;
             }
-        } else {
-            //LOG_E("Error reading from serial port: %s", strerror(errno));
-            LOG_E("ucd_serial_read failed.");
-            return NULL;
         }
+    } else {
+        LOG_D("Not draining the input buffer as shouldDrain=0");
     }
 
     LOG_D("Ready to handle requests");
@@ -396,7 +409,7 @@ void* ucd_loop(void* pArg) {
     }
 }
 
-static int ucd_init(int fd) {
+static int ucd_init(int fd, int shouldDrain) {
     // Make sure UCD_PATH(__ucd_devnum) directory is existent and empty
 
     // Check if UCD_PATH(__ucd_devnum) directory exists
@@ -431,12 +444,18 @@ static int ucd_init(int fd) {
     }
 
     __ucd_fd = fd;
-    int rv = pthread_create(&__ucd_loop_thread, NULL, ucd_loop, (void*) &__ucd_fd);
+    ucd_loop_args_t args = {
+        .fd = fd,
+        .shouldDrain = shouldDrain
+    };
+    __ucd_loop_args = args;
+    //int rv = pthread_create(&__ucd_loop_thread, NULL, ucd_loop, (void*) &__ucd_fd);
+    int rv = pthread_create(&__ucd_loop_thread, NULL, ucd_loop, (void*) &__ucd_loop_args);
 
     return 0;
 }
 
-int ucd_driver_attach(const char* pcDev, int devnum) {
+int ucd_driver_attach(const char* pcDev, int devnum, int shoudDrain) {
     __ucd_devnum = devnum;
     int fd = open(pcDev, O_RDWR | O_NOCTTY | O_SYNC | O_EXCL);
     if (fd < 0) {
@@ -489,7 +508,7 @@ int ucd_driver_attach(const char* pcDev, int devnum) {
 
     tcflush(fd, TCIOFLUSH); // Flush just in case there is any garbage in the buffers
 
-    if (-1 == ucd_init(fd)) {
+    if (-1 == ucd_init(fd, shoudDrain)) {
         return -1;
     }
 
