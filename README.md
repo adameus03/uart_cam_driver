@@ -7,3 +7,6 @@ How to prepare for using this software and how to interface with the abstraction
 
 - Writing `f` to `/custom/ucdX/request` will request a frame from an ESP32-CAM running the uart-cam firmware. To check if the frame is ready, you can read from `/custom/ucdX/state`. `1` means ready and `0` means not ready.
 - To perform an OTA update over UART, the driver user writes the new firmware to `/custom/ucdX/firmware` (for example `$ cat /path/to/firmware | tee /custom/ucdX/firmware`), then triggers the update by writing `u` to `/custom/ucdX/request`.
+
+### UPDATE
+In the newest version of the program there is an additional paramter - 0 or 1 indicating whether to drain the serial input before handling communications
